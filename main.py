@@ -1,6 +1,9 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, EmailStr, Field
+from typing import List, Optional
+import random
 
 app = FastAPI()
 
@@ -12,56 +15,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class RegistrationIn(BaseModel):
+    team: str = Field(..., min_length=2, max_length=64)
+    institution: str = Field(..., min_length=2, max_length=128)
+    email: EmailStr
+    members: List[str] = []
+
+
+class TeamScore(BaseModel):
+    id: str
+    team: str
+    score: int
+
+
+# Mock in-memory stores (simple demo). In production connect MongoDB.
+TEAMS: List[TeamScore] = [
+    TeamScore(id="t1", team="Vector Vipers", score=92),
+    TeamScore(id="t2", team="Quantum Crew", score=88),
+    TeamScore(id="t3", team="Servo Saints", score=80),
+    TeamScore(id="t4", team="Neon Navigators", score=75),
+    TeamScore(id="t5", team="Circuit Cartel", score=70),
+]
+
+
 @app.get("/")
 def read_root():
-    return {"message": "Hello from FastAPI Backend!"}
+    return {"message": "ROBO-HEIST backend running"}
 
-@app.get("/api/hello")
-def hello():
-    return {"message": "Hello from the backend API!"}
+
+@app.get("/api/leaderboard")
+def leaderboard():
+    sorted_teams = sorted(TEAMS, key=lambda t: t.score, reverse=True)
+    return {"teams": [t.dict() for t in sorted_teams]}
+
+
+@app.post("/api/register")
+def register_team(payload: RegistrationIn):
+    # Very light mock validation/creation
+    if any(t.team.lower() == payload.team.lower() for t in TEAMS):
+        raise HTTPException(status_code=400, detail="Team name already registered")
+    new = TeamScore(id=f"t{len(TEAMS)+1}", team=payload.team, score=random.randint(50, 95))
+    TEAMS.append(new)
+    return {"ok": True, "team": new.dict()}
+
 
 @app.get("/test")
 def test_database():
-    """Test endpoint to check if database is available and accessible"""
     response = {
         "backend": "✅ Running",
-        "database": "❌ Not Available",
-        "database_url": None,
-        "database_name": None,
-        "connection_status": "Not Connected",
-        "collections": []
+        "database": "🧪 Mock (in-memory)",
     }
-    
-    try:
-        # Try to import database module
-        from database import db
-        
-        if db is not None:
-            response["database"] = "✅ Available"
-            response["database_url"] = "✅ Configured"
-            response["database_name"] = db.name if hasattr(db, 'name') else "✅ Connected"
-            response["connection_status"] = "Connected"
-            
-            # Try to list collections to verify connectivity
-            try:
-                collections = db.list_collection_names()
-                response["collections"] = collections[:10]  # Show first 10 collections
-                response["database"] = "✅ Connected & Working"
-            except Exception as e:
-                response["database"] = f"⚠️  Connected but Error: {str(e)[:50]}"
-        else:
-            response["database"] = "⚠️  Available but not initialized"
-            
-    except ImportError:
-        response["database"] = "❌ Database module not found (run enable-database first)"
-    except Exception as e:
-        response["database"] = f"❌ Error: {str(e)[:50]}"
-    
-    # Check environment variables
-    import os
-    response["database_url"] = "✅ Set" if os.getenv("DATABASE_URL") else "❌ Not Set"
-    response["database_name"] = "✅ Set" if os.getenv("DATABASE_NAME") else "❌ Not Set"
-    
     return response
 
 
